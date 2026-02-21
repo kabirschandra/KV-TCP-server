@@ -1,15 +1,6 @@
 #include "hashmap.h"
 
-typedef struct Hashmap {
 
-    Node **buckets;
-    size_t numBuckets;
-    size_t (*hashFunction)(const char *key, size_t keySize); 
-    //Fptr does have overhead, but this is negligible next to the LL traversal cost 
-
-    //Usually good practise to include a destructor fptr for elements
-    //This map is for a database and only intended to store strings however, so we can just free()
-} Hashmap;
 
 typedef struct Node {
 
@@ -20,6 +11,16 @@ typedef struct Node {
 
 } Node;
 
+/* hashmap_djb2 */
+/* Implementation of djb2 hash */
+const size_t hashmap_djb2(const char *key, size_t keySize) {
+    size_t hash = 5381;
+    for(size_t i = 0; i < keySize; ++i) {
+        hash = ((hash * 33)) + (unsigned char)(key[i]);
+    }
+
+    return hash;
+}
 
 
 /* hashmap_init */
@@ -66,7 +67,11 @@ void hashmap_destroy(Hashmap *map) {
 /* Insert an item to a hashmap */
 const char *hashmap_insert(Hashmap *map, const char *key, const size_t keySize, const char *value, const size_t valueSize) {
 
-    //Try allocation first - so if it fails we can exit early
+    if(hashmap_find(&map, key, keySize)) {
+        return NULL; //Duplicate
+    }
+
+    //Try allocation - so if it fails we can exit early
     Node *newNode = malloc(sizeof(Node));
     char *newKey = malloc(keySize);
     char *newValue = malloc(valueSize);
@@ -114,6 +119,31 @@ const char *hashmap_find(const Hashmap *map, const char *key, const size_t keySi
     return NULL;
 }
 
+
+/* hashmap_edit */
+/* Edit a value associated with a key in a hashmap */
+const char *hashmap_edit(Hashmap *map, const char *key, const size_t keySize, const char *newValue, const size_t newValueSize) {
+    size_t bucketIndex = map->hashFunction(key, keySize) % map->numBuckets;
+
+    Node *node = map->buckets[bucketIndex]; 
+    while(node) {
+        if(node->keySize == keySize) {
+            if(!memcmp(node->key, key, keySize)) {
+
+                char *newValBuffer = realloc(node->value, newValueSize * sizeof(char));
+                if(!newValue) {
+                    return NULL;
+                }
+                memcpy(newValBuffer, newValue, newValueSize);
+                node->value = newValBuffer;
+                return node->value;
+            }
+        }
+
+        node = node->next;
+    } 
+    return NULL;
+}
 
 
 /* hashmap_delete */
@@ -191,5 +221,24 @@ bool hashmap_rehash(Hashmap *map, const size_t newSize, const size_t (*hashFunct
     return true;
 }
 
+
+/* hashmap_display */
+/* Display a hashmaps contents */
+void hashmap_display(const Hashmap *map) {
+
+    for(size_t i = 0; i < map->numBuckets; i++) {
+        Node *bucket = map->buckets[i];
+
+        printf("Bucket %zu (k, v):\n", i);
+
+        while(bucket) {
+            printf("(%s, %s)", bucket->key, bucket->value);
+
+            bucket = bucket->next;
+        }
+    }
+
+    return;
+}
 
 

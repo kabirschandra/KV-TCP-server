@@ -6,8 +6,28 @@
 #include <string.h>
 #include <stdbool.h>
 
+typedef struct Node Node;
+typedef struct Hashmap {
 
-typedef struct Hashmap Hashmap;
+    Node **buckets;
+    size_t numBuckets;
+    const size_t (*hashFunction)(const char *key, size_t keySize); 
+    //Fptr does have overhead, but this is negligible next to the LL traversal cost 
+
+    //Usually good practise to include a destructor fptr for elements
+    //This map is for a database and only intended to store strings however, so we can just free()
+} Hashmap;
+
+
+/** 
+ * @brief Implementation of the djb2 hash function 
+ * 
+ * @param key :: Key to hash
+ * @param keySize :: Size of key to hash (bytes)
+ * 
+ * @return const size_t :: Hash of key (djb2)
+ */
+const size_t hashmap_djb2(const char *key, size_t keySize);
 
 
 /** 
@@ -62,6 +82,19 @@ const char *hashmap_insert(Hashmap *map, const char *key, const size_t keySize, 
 const char *hashmap_find(const Hashmap *map, const char *key, const size_t keySize);
 
 
+/** 
+ * @brief Edit an item present in the map 
+ * 
+ * @param map :: Map pointer to be inserted into 
+ * @param key :: Pointer to key data to use to search
+ * @param keySize :: Size of the key (bytes)
+ * @param newValue :: Pointer to the new value data
+ * @param newValueSize :: Size of the new value inserted (bytes)
+ * 
+ * @return const char* :: Pointer to new item in the map, returns NULL if edit failed, or the item isnt present (map is unaltered)
+ */
+const char *hashmap_edit(Hashmap *map, const char *key, const size_t keySize, const char *newValue, const size_t newValueSize);
+
 
 /** 
  * @brief Delete an item from a hashmap
@@ -89,5 +122,14 @@ bool hashmap_delete(Hashmap *map, const char *key, const size_t keySize);
 bool hashmap_rehash(Hashmap *map, const size_t newSize, const size_t (*hashFunction)(const char *key, size_t keySize));
 
 
+
+/** 
+ * @brief Display a hashmap and its contents (buckets and items)
+ * 
+ * @param map :: Map pointer to display from
+ *
+ * @return void :: None 
+ */
+void hashmap_display(const Hashmap *map);
 
 #endif
