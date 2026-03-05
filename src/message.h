@@ -3,15 +3,20 @@
 #include "commands.h"
 #include <stdint.h>
 
+typedef struct ClientMetadata {
+    REQUEST request; //Command issued (SET, GET, etc)
+    uint8_t version; //Version of client
+    size_t field1Length; //Length of field1
+    size_t field2Length; //Length of field2
+} ClientMetadata;
+
+
 typedef struct ClientRequest {
+    ClientMetadata metadata;
     char *field1; //field1 data (e.g key, ip)
     char *field2; //field2 data (e.g value)
     size_t field3; //size_ts
-    size_t field1Length; //Length of field1
-    size_t field2Length; //Length of field2
-    uint8_t version; //Version of client
-    REQUEST request; //Command issued (SET, GET, etc)
-
+    int socketFd;
 } ClientRequest;
 
 

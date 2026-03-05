@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <sys/socket.h>
+#include <arpa/inet.h>
 #include "../commands.h"
 #include "../message.h"
 
@@ -11,17 +12,133 @@
 #define PORT 9000 //Common for TCP
 #define MAX_MESSAGE_LENGTH 64000
 
+/** connect_server
+ * 
+ * @brief Connect to an ip supplied in *request (IPV4 exclusive)
+ *        Renews connection if previously connected
+ * 
+ * @param request :: Input request
+ * 
+ * @return bool :: Indication of if connection was successful
+ */
+bool connect_server(ClientRequest *request) {
 
-bool connect(ClientRequest *request) {
+    if(!request->field1) {
+        printf("No IP address provided for connection\n");
+        return false;
+    }
 
+    if(request->socketFd >= 0) { //Renew connection
+        close(request->socketFd);
+    }
+
+    int socketFd = socket(AF_INET, SOCK_STREAM, 0); //IPV4, TCP
+    if(socketFd < 0) {
+        printf("Socket fd initialiser failed\n");
+        return false;
+    }
+    struct sockaddr_in addr = {0}; //Zero struct
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(PORT);
+
+    if(inet_pton(AF_INET, request->field1, &addr.sin_addr) != 1) { //IP
+        printf("Bad IP '%s'\n", request->field1);
+        close(socketFd);
+        return false;
+    }
+
+    if(connect(socketFd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        printf("Connection to '%s' failed\n", request->field1);
+        close(socketFd);
+        return false;
+    }
+    request->socketFd = socketFd;
+
+    printf("Connected to '%s'\n", request->field1);
 
     return true;
 }
 
 
+/** terminate_connection
+ * 
+ * @brief Terminate connection to server
+ * 
+ * @param request :: Request
+ * 
+ * @return void :: None
+ */
+void terminate_connection(ClientRequest *request) {
+
+    if(request->socketFd >= 0) {
+        close(request->socketFd);
+        request->socketFd = -1;
+        printf("Connection closed\n");
+    } else {
+        printf("No active connection\n");
+    }
+
+    return;
+}
+
+
+/** send_request
+ * 
+ * @brief Handle insertion, deletion, rehashing and editing
+ * 
+ * @param request :: Request
+ * 
+ * @return bool :: Indication of successful insertion (true == inserted)
+ */
+bool send_request(ClientRequest *request) {
+
+    if(request->socketFd == -1) {
+        printf("No active connection\n");
+        return false;
+    }
+   
+    //Send sizes of keys/values then send actual data
+    if(send(request->socketFd, &(request->metadata), sizeof(request->metadata), 0) != sizeof(request->metadata)) {
+        printf("Failed to send data\n");
+        return false;
+    }
+    //Send key
+    if(send(request->socketFd, request->field1, request->metadata.field1Length, 0) != request->metadata.field1Length) {
+        printf("Failed to send key data\n");
+        return false;
+    }
+    //Send value
+    if(send(request->socketFd, request->field2, request->metadata.field2Length, 0) != request->metadata.field2Length) {
+        printf("Failed to send data\n");
+        return false;
+    }
+    //Send size_t 
+    if(send(request->socketFd, request->field3, sizeof(size_t), 0) != sizeof(size_t)) {
+        printf("Failed to send numeric data\n");
+        return false;
+    }
+
+
+    ServerResponse response;
+    if(recv(request->socketFd, &response, sizeof(response), 0) != sizeof(response)) {
+        printf("Invalid response recieved from server\n");
+        return false;
+    }
+    if(response.response == SUCCESS) {
+        return true;
+    } else {
+        printf("Server inserton failed\n");
+        return false;
+    }
+}
+
+
+
+
+
 /** parse_input
  * 
- * @brief parse an input command and output a corrosponding requestOut
+ * @brief Parse an input command and output a corrosponding requestOut
  * 
  * @param input :: Input command string
  * @param requestOut :: Corrosponding output request to input
@@ -31,12 +148,12 @@ bool connect(ClientRequest *request) {
 bool parse_input(char *input, ClientRequest *requestOut) {
     
     requestOut->field1 = NULL;
-    requestOut->field1Length = 0;
+    requestOut->metadata.field1Length = 0;
     requestOut->field2 = NULL;
-    requestOut->field2Length = 0;
+    requestOut->metadata.field2Length = 0;
     requestOut->field3 = 0;
 
-    requestOut->version = VERSION;
+    requestOut->metadata.version = VERSION;
 
     char *operation = strtok(input, " \n");
     if(!operation) {
@@ -45,39 +162,39 @@ bool parse_input(char *input, ClientRequest *requestOut) {
     }
 
     if(strcmp(operation, "connect") == 0) {
-        requestOut->request = CONNECT;
+        requestOut->metadata.request = CONNECT;
         requestOut->field1 = strtok(NULL, " \n"); //ip
 
         if(!requestOut->field1) {
             return false;
         }
-        requestOut->field1Length = strlen(requestOut->field1);
+        requestOut->metadata.field1Length = strlen(requestOut->field1) + 1;
 
     } else if(strcmp(operation, "terminate") == 0) {
-        requestOut->request = TERMINATE;
+        requestOut->metadata.request = TERMINATE;
 
     } else if(strcmp(operation, "insert") == 0) {
-        requestOut->request = INSERT;
+        requestOut->metadata.request = INSERT;
         requestOut->field1 = strtok(NULL, " \n"); //key
 
         requestOut->field2 = strtok(NULL, " \n"); //value
         if(!requestOut->field1 || !requestOut->field2) {
             return false;
         }
-        requestOut->field1Length = strlen(requestOut->field1);
-        requestOut->field2Length = strlen(requestOut->field2);
+        requestOut->metadata.field1Length = strlen(requestOut->field1) + 1;
+        requestOut->metadata.field2Length = strlen(requestOut->field2) + 1;
 
     } else if(strcmp(operation, "find") == 0) {
-        requestOut->request = FIND;
+        requestOut->metadata.request = FIND;
         requestOut->field1 = strtok(NULL, " \n"); //key
 
         if(!requestOut->field1) {
             return false;
         }
-        requestOut->field1Length = strlen(requestOut->field1);
+        requestOut->metadata.field1Length = strlen(requestOut->field1);
 
     } else if(strcmp(operation, "rehash") == 0) {
-        requestOut->request = REHASH;
+        requestOut->metadata.request = REHASH;
         requestOut->field1 = strtok(NULL, " \n"); //new size
         if(!requestOut->field1) {
             return false;
@@ -89,10 +206,10 @@ bool parse_input(char *input, ClientRequest *requestOut) {
         if(end == requestOut->field1 || *end != '\0') { //Invalid size passed
             return false;
         }
-        requestOut->field1Length = strlen(requestOut->field1);
+        requestOut->metadata.field1Length = strlen(requestOut->field1);
 
     } else if(strcmp(operation, "editv") == 0) {
-        requestOut->request = EDIT_VALUE;
+        requestOut->metadata.request = EDIT_VALUE;
         requestOut->field1 = strtok(NULL, " \n"); //key
 
         requestOut->field2 = strtok(NULL, " \n"); //value
@@ -100,22 +217,26 @@ bool parse_input(char *input, ClientRequest *requestOut) {
         if(!requestOut->field1 || !requestOut->field2) {
             return false;
         }
-        requestOut->field1Length = strlen(requestOut->field1);
-        requestOut->field2Length = strlen(requestOut->field2);
+        requestOut->metadata.field1Length = strlen(requestOut->field1);
+        requestOut->metadata.field2Length = strlen(requestOut->field2);
 
     } else if(strcmp(operation, "delete") == 0) {
-        requestOut->request = DELETE;
+        requestOut->metadata.request = DELETE;
         requestOut->field1 = strtok(NULL, " \n"); //key
 
         if(!requestOut->field1) {
             return false;
         }
-        requestOut->field1Length = strlen(requestOut->field1);
+        requestOut->metadata.field1Length = strlen(requestOut->field1);
 
     } else {
         return false;
     }
-
+    if(requestOut->metadata.field1Length > MAX_MESSAGE_LENGTH ||
+    requestOut->metadata.field2Length > MAX_MESSAGE_LENGTH) {
+        printf("Exceeded send length of fields\n");
+        return false;
+    }
 
 
     return true;
@@ -131,7 +252,7 @@ int main(void) {
         return -1;
     }
 
-    printf("%d, %s, %s, %zu\n", req.request, req.field1, req.field2, req.field3);
+    printf("%d, %s, %s, %zu\n", req.metadata.request, req.field1, req.field2, req.field3);
 
     return 0;
 }
