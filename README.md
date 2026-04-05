@@ -1,10 +1,10 @@
 # KV-TCP-Server
 A key-value store that communicates over TCP. The server maintains a hashmap in memory. Clients connect, send commands, and get responses.
 
-What you need
-GCC compiler
+What you need:
+- GCC compiler
 
-Linux or WSL (socket code uses POSIX)
+- Linux or WSL (socket code uses POSIX)
 
 Make sure port 9000 is free
 
